@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetinFark — Metin Karşılaştırma / Text Diff</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
+    --accent:#2f81f7;--add:#1a4d2e;--addText:#7ee787;--del:#5c1a1a;--delText:#ffa198;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+  header{padding:22px 20px 12px;text-align:center}
+  header h1{font-size:1.7rem}
+  header h1 span{color:var(--accent)}
+  header p{color:var(--muted);font-size:.92rem;margin-top:5px}
+  .wrap{flex:1;padding:10px 20px 20px;max-width:1200px;width:100%;margin:0 auto}
+  .inputs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:700px){.inputs{grid-template-columns:1fr}}
+  .box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .box label{font-size:.82rem;color:var(--muted);display:block;margin-bottom:7px;font-weight:600}
+  textarea{width:100%;height:220px;background:#0b0f14;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:.88rem;resize:vertical}
+  textarea:focus{outline:1px solid var(--accent)}
+  .actions{display:flex;gap:10px;justify-content:center;margin:16px 0;flex-wrap:wrap}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px 22px;font-size:.95rem;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+  button.ghost:hover{color:var(--text);border-color:var(--muted)}
+  button:hover{filter:brightness(1.12)}
+  #stats{color:var(--muted);font-size:.88rem;text-align:center;margin-bottom:12px;min-height:1.2em}
+  #stats b.add{color:var(--addText)} #stats b.del{color:var(--delText)}
+  .result{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:700px){.result{grid-template-columns:1fr}}
+  .pane{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .pane h3{font-size:.82rem;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--border)}
+  .pane pre{padding:12px;font-family:Consolas,monospace;font-size:.85rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}
+  .l-add{background:var(--add);color:var(--addText);display:inline-block;width:100%}
+  .l-del{background:var(--del);color:var(--delText);display:inline-block;width:100%}
+  footer{text-align:center;color:var(--muted);font-size:.8rem;padding:14px;border-top:1px solid var(--border)}
+  footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚖️ Metin<span>Fark</span></h1>
+  <p>🇹🇷 İki metni satır satır karşılaştır — her şey tarayıcında, hiçbir yer yüklenmez.</p>
+  <p>🇬🇧 Compare two texts line by line — everything in your browser, nothing uploaded.</p>
+</header>
+<div class="wrap">
+  <div class="inputs">
+    <div class="box"><label id="lblA">🅰️ Orijinal metin / Original text</label>
+      <textarea id="ta" placeholder="Buraya yazın / paste here..." spellcheck="false"></textarea></div>
+    <div class="box"><label id="lblB">🅱️ Değişmiş metin / Changed text</label>
+      <textarea id="tb" placeholder="Buraya yazın / paste here..." spellcheck="false"></textarea></div>
+  </div>
+  <div class="actions">
+    <button onclick="run()">⚖️ Karşılaştır / Compare</button>
+    <button class="ghost" onclick="swap()">🔄 Değiştir / Swap</button>
+    <button class="ghost" onclick="clearAll()">🗑️ Temizle / Clear</button>
+  </div>
+  <div id="stats"></div>
+  <div class="result">
+    <div class="pane"><h3 id="lblA2">🅰️ Orijinal / Original</h3><pre id="pa"></pre></div>
+    <div class="pane"><h3 id="lblB2">🅱️ Değişmiş / Changed</h3><pre id="pb"></pre></div>
+  </div>
+</div>
+<footer>⚡ %100 offline — dosyalarınız cihazınızdan çıkmaz · 100% offline — your files never leave your device<br>
+  👤 Ahmet Gedik · 📸 Instagram: <a href="https://instagram.com/ahmetgedik67" target="_blank" rel="noopener">@ahmetgedik67</a> · MIT License</footer>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+function splitLines(s){return s.replace(/\r\n?/g,"\n").split("\n");}
+// LCS tabanlı satır diff'i (Myers yerine basit O(n*m) LCS — günlük kullanım için hızlı ve yeterli)
+function diffLines(a,b){
+  const n=a.length,m=b.length;
+  // Önek/sonek kırpma — uzun metinlerde hız için
+  let start=0;while(start<n&&start<m&&a[start]===b[start])start++;
+  let endA=n-1,endB=m-1;
+  while(endA>=start&&endB>=start&&a[endA]===b[endB]){endA--;endB--;}
+  const ca=a.slice(start,endA+1),cb=b.slice(start,endB+1);
+  const cn=ca.length,cm=cb.length;
+  // LCS tablosu
+  const dp=Array.from({length:cn+1},()=>new Uint16Array(cm+1));
+  for(let i=1;i<=cn;i++)for(let j=1;j<=cm;j++)
+    dp[i][j]=ca[i-1]===cb[j-1]?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
+  // Geri izleme
+  const ops=[];let i=cn,j=cm;
+  while(i>0||j>0){
+    if(i>0&&j>0&&ca[i-1]===cb[j-1]){ops.push({t:"=",a:ca[i-1],b:cb[j-1]});i--;j--;}
+    else if(j>0&&(i===0||dp[i][j-1]>=dp[i-1][j])){ops.push({t:"+",b:cb[j-1]});j--;}
+    else{ops.push({t:"-",a:ca[i-1]});i--;}
+  }
+  ops.reverse();
+  // Eşleşen satırların arasında "-" ve "+" bloklarını yan yana hizala
+  const left=[],right=[];
+  for(let k=0;k<ops.length;k++){
+    if(ops[k].t==="="){left.push({t:"=",s:ops[k].a});right.push({t:"=",s:ops[k].b});continue;}
+    const dels=[],adds=[];
+    while(k<ops.length&&ops[k].t==="-"){dels.push(ops[k].a);k++;}
+    while(k<ops.length&&ops[k].t==="+"){adds.push(ops[k].b);k++;}
+    k--;
+    const len=Math.max(dels.length,adds.length);
+    for(let x=0;x<len;x++){
+      left.push(dels[x]!==undefined?{t:"-",s:dels[x]}:{t:"gap"});
+      right.push(adds[x]!==undefined?{t:"+",s:adds[x]}:{t:"gap"});
+    }
+  }
+  // Baştaki kırpılan ortak satırları ekle
+  const pre=[];for(let x=0;x<start;x++)pre.push({t:"=",s:a[x]});
+  const suf=[];for(let x=endA+1;x<n;x++)suf.push({t:"=",s:a[x]});
+  return{left:pre.concat(left,suf),right:pre.concat(right,suf)};
+}
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function run(){
+  const A=splitLines($("ta").value),B=splitLines($("tb").value);
+  if(!$("ta").value&&!$("tb").value){$("stats").textContent="🇹🇷 Önce metin gir · 🇬🇧 Enter text first";return;}
+  const{left,right}=diffLines(A,B);
+  const lh=[],rh=[];
+  for(let k=0;k<left.length;k++){
+    const L=left[k],R=right[k]||{t:"gap"};
+    const ls=L.t==="gap"?"":L.t==="-"?'<span class="l-del">'+esc("- "+L.s)+"</span>":esc("  "+L.s);
+    const rs=R.t==="gap"?"":R.t==="+"?'<span class="l-add">'+esc("+ "+R.s)+"</span>":esc("  "+R.s);
+    lh.push(ls||"&nbsp;");rh.push(rs||"&nbsp;");
+  }
+  $("pa").innerHTML=lh.join("\n");$("pb").innerHTML=rh.join("\n");
+  const add=right.filter(r=>r.t==="+").length,del=left.filter(l=>l.t=="-").length,same=left.filter(l=>l.t=="=").length;
+  $("stats").innerHTML=`📊 +<b class="add">${add}</b> 🇹🇷eklenen / 🇬🇧added · −<b class="del">${del}</b> 🇹🇷silinen / 🇬🇧removed · ${same} 🇹🇷ortak / 🇬🇧common`;
+}
+function swap(){const t=$("ta").value;$("ta").value=$("tb").value;$("tb").value=t;}
+function clearAll(){$("ta").value="";$("tb").value="";$("pa").textContent="";$("pb").textContent="";$("stats").textContent="";}
+// Klavye kısayolu: Ctrl+Enter ile karşılaştır
+document.addEventListener("keydown",e=>{if(e.ctrlKey&&e.key==="Enter")run();});
+</script>
+</body>
+</html>
